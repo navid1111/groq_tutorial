@@ -26,11 +26,10 @@ class GroqService {
         };
     }
     getCompletion(prompt) {
-        var _a, _b;
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 const completion = yield this.groq.chat.completions.create(Object.assign({ messages: [{ role: 'user', content: prompt }], model: this.defaultModel }, this.defaultParams));
-                return ((_b = (_a = completion.choices[0]) === null || _a === void 0 ? void 0 : _a.message) === null || _b === void 0 ? void 0 : _b.content) || '';
+                return completion.choices[0].message.content || '';
             }
             catch (error) {
                 console.error('Error in Groq completion:', error);

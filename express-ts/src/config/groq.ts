@@ -29,7 +29,7 @@ class GroqService {
         model: this.defaultModel,
         ...this.defaultParams,
       });
-      return completion.choices[0]?.message?.content || '';
+      return completion.choices[0].message.content || '';
     } catch (error) {
       console.error('Error in Groq completion:', error);
       throw error;
