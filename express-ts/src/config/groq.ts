@@ -1,3 +1,4 @@
+import fs from 'fs';
 import Groq from 'groq-sdk';
 
 interface DebateScores {
@@ -6,6 +7,11 @@ interface DebateScores {
   person2Score: number;
   reason: string;
   analysis: string; // Add this new field
+}
+
+interface TranscriptionOptions {
+  language?: string;
+  prompt?: string;
 }
 
 class GroqService {
@@ -126,6 +132,65 @@ class GroqService {
     } catch (error) {
       console.error('Error parsing scores:', error);
       return null;
+    }
+  }
+
+  async transcribeAudio(
+    filePath: string,
+    options: TranscriptionOptions = {},
+  ): Promise<string> {
+    let fileStream: fs.ReadStream | null = null;
+    try {
+      console.log('Starting transcription for:', filePath);
+
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`File not found: ${filePath}`);
+      }
+
+      fileStream = fs.createReadStream(filePath);
+      console.log('Created file stream');
+
+      // Log the file details
+      const stats = fs.statSync(filePath);
+      console.log('File stats:', {
+        size: stats.size,
+        path: filePath,
+      });
+
+      const response = await this.groq.audio.transcriptions.create({
+        file: fileStream,
+        model: 'whisper-large-v3',
+        language: options.language || 'en',
+        prompt: options.prompt,
+        response_format: 'json', // Changed from 'text' to 'json'
+      });
+
+      console.log('Raw API response:', response);
+
+      // Handle different response formats
+      const transcription =
+        typeof response === 'string'
+          ? response
+          : response?.text || response?.transcription;
+
+      if (!transcription) {
+        console.error('Invalid API response:', response);
+        throw new Error('No transcription received from API');
+      }
+
+      console.log('Transcription completed successfully');
+      return transcription;
+    } catch (error: any) {
+      console.error('Transcription error:', {
+        message: error.message,
+        stack: error.stack,
+        filePath,
+      });
+      throw new Error(`Transcription failed: ${error.message}`);
+    } finally {
+      if (fileStream) {
+        fileStream.destroy();
+      }
     }
   }
 }
