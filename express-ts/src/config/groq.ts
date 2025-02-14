@@ -168,10 +168,7 @@ class GroqService {
       console.log('Raw API response:', response);
 
       // Handle different response formats
-      const transcription =
-        typeof response === 'string'
-          ? response
-          : response?.text || response?.transcription;
+      const transcription = response.text;
 
       if (!transcription) {
         console.error('Invalid API response:', response);
