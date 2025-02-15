@@ -50,6 +50,65 @@ class GroqService {
     }
   }
 
+  async getDiseaseOfPlant(imageUrl: string): Promise<any> {
+    // Return type is now 'any' or a specific interface
+    try {
+      const response = await this.groq.chat.completions.create({
+        model: 'llama-3.2-90b-vision-preview',
+        ...this.defaultParams,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `Identify the plant and predict the most likely disease affecting it (if any) in this image. Respond in JSON format ONLY, with no other text or explanations.  Use the following JSON structure:
+
+{
+  "plant": "[Plant Name]",
+  "disease": "[Disease Name]",
+  "probability": "[Probability Percentage]"
+}
+
+If the image does not contain a clear plant leaf, respond ONLY with:
+
+{
+  "error": "Please provide an image of a plant leaf."
+}
+
+If no disease is detected, use:
+
+{
+  "plant": "[Plant Name]",
+  "disease": "None",
+  "probability": "100%"
+}
+`,
+              },
+              { type: 'image_url', image_url: { url: imageUrl } },
+            ],
+          },
+        ],
+      });
+
+      const content = response.choices[0]?.message?.content;
+
+      if (!content) {
+        return { error: 'No response from model.' }; // Handle empty response
+      }
+
+      try {
+        const jsonResponse = JSON.parse(content);
+        return jsonResponse; // Return the parsed JSON object
+      } catch (jsonError) {
+        console.error('Error parsing JSON:', jsonError, content); // Log parsing error and content
+        return { error: 'Invalid JSON response from model.' }; // Handle JSON parsing error
+      }
+    } catch (error) {
+      console.error('Error diagnosing plant disease:', error);
+      return { error: 'Failed to diagnose plant disease. Please try again.' }; // Return error object
+    }
+  }
   async judgeAndGiveDebateScore(
     debateTopic: string,
     prompt1: string,
@@ -72,7 +131,7 @@ class GroqService {
             Person 1: ${prompt1}
             Person 2: ${prompt2}
             
-            Format your response exactly like this:
+            Format your response EXACTLY like this - do not deviate from this format:
             <think>
             [Your detailed analysis here]
             </think>
