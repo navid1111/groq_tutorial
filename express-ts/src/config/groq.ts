@@ -1,5 +1,13 @@
 import fs from 'fs';
-import Groq from 'groq-sdk';
+import Groq, {
+  ChatCompletionAssistantMessageParam,
+  ChatCompletionCreateParams,
+  ChatCompletionMessageParam,
+  ChatCompletionToolMessageParam,
+  ChatCompletionUserMessageParam,
+} from 'groq-sdk';
+import { ChatCompletionTool } from 'groq-sdk/resources/chat/completions';
+import { Inventroy } from './../models/Inventory';
 
 interface DebateScores {
   winner: string;
@@ -12,6 +20,22 @@ interface DebateScores {
 interface TranscriptionOptions {
   language?: string;
   prompt?: string;
+}
+
+// Add interface for inventory response
+interface InventoryResponse {
+  productId: string;
+  quantity: number;
+  location: string;
+  status: string;
+  lastUpdated: string;
+}
+
+// Add interface for tool call arguments
+interface InventoryToolArgs {
+  productId: string;
+  location?: string;
+  detailed?: boolean;
 }
 
 class GroqService {
@@ -247,6 +271,163 @@ If no disease is detected, use:
       if (fileStream) {
         fileStream.destroy();
       }
+    }
+  }
+
+  private tools: ChatCompletionTool[] = [
+    {
+      type: 'function',
+      function: {
+        name: 'check_inventory',
+        description: `Retrieve real-time inventory information including stock levels, locations, 
+                     restock dates, and product availability. Supports multiple identification methods
+                     and localization. Returns JSON data with inventory details or error information.`,
+        parameters: {
+          type: 'object',
+          properties: {
+            productId: {
+              type: 'string',
+              description:
+                'Unique product identifier (e.g., SKU, UPC, or internal ID). Example: "PROD-23567-2023"',
+            },
+            productName: {
+              type: 'string',
+              description:
+                'Product name for fuzzy matching (use when ID not available)',
+            },
+            location: {
+              type: 'string',
+              description:
+                'Warehouse/Site ID to check specific inventory. Example: "WAREHOUSE-NY-12"',
+              default: 'all',
+            },
+            language: {
+              type: 'string',
+              description:
+                'Response language code (ISO 639-1). Example: "en", "es", "fr"',
+              default: 'en',
+            },
+            detailed: {
+              type: 'boolean',
+              description: 'Return extended inventory details when true',
+              default: false,
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of results to return (pagination)',
+              minimum: 1,
+              maximum: 100,
+              default: 10,
+            },
+            offset: {
+              type: 'number',
+              description: 'Pagination offset for large result sets',
+              minimum: 0,
+              default: 0,
+            },
+          },
+          required: ['productId'],
+          oneOf: [{ required: ['productId'] }, { required: ['productName'] }],
+          additionalProperties: false,
+        },
+      },
+    },
+  ];
+  async checkInventory(query: string): Promise<string> {
+    try {
+      // Initial request to get tool calls
+      const initialResponse = await this.groq.chat.completions.create({
+        model: this.defaultModel,
+        ...this.defaultParams,
+        messages: [
+          {
+            role: 'user',
+            content: query,
+          } as ChatCompletionUserMessageParam,
+        ],
+        tools: this.tools,
+        tool_choice: 'auto',
+      } as ChatCompletionCreateParams);
+
+      const message = initialResponse.choices[0]?.message;
+      if (!message) {
+        throw new Error('No valid response from Groq API');
+      }
+
+      const toolCalls = message.tool_calls || [];
+      if (toolCalls.length === 0) {
+        return message.content || 'No tool calls detected in response';
+      }
+
+      // Process tool calls with proper typing
+      const toolResponses: ChatCompletionToolMessageParam[] = await Promise.all(
+        toolCalls.map(async toolCall => {
+          try {
+            const args = JSON.parse(
+              toolCall.function.arguments,
+            ) as InventoryToolArgs;
+
+            if (!args.productId) {
+              throw new Error('Missing productId in tool arguments');
+            }
+
+            const inventory = await Inventroy.getInventoryStatus(
+              args.productId,
+            );
+
+            return {
+              role: 'tool',
+              content: JSON.stringify(inventory),
+              tool_call_id: toolCall.id,
+            };
+          } catch (error) {
+            console.error('Tool call processing error:', error);
+            return {
+              role: 'tool',
+              content: JSON.stringify({
+                error: 'Failed to retrieve inventory',
+              }),
+              tool_call_id: toolCall.id,
+            };
+          }
+        }),
+      );
+
+      // Prepare messages for final response
+      const messages: ChatCompletionMessageParam[] = [
+        { role: 'user', content: query } as ChatCompletionUserMessageParam,
+        {
+          role: 'assistant',
+          content: message.content,
+          tool_calls: message.tool_calls,
+        } as ChatCompletionAssistantMessageParam,
+        ...toolResponses,
+      ];
+
+      // Get final response with proper typing
+      const finalResponse = await this.groq.chat.completions.create({
+        model: this.defaultModel,
+        ...this.defaultParams,
+        messages,
+      } as ChatCompletionCreateParams);
+
+      const finalContent = finalResponse.choices[0]?.message?.content;
+      if (!finalContent) {
+        throw new Error('No content in final response');
+      }
+
+      return finalContent;
+    } catch (error) {
+      console.error('Inventory check error:', {
+        error,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      throw new Error(
+        `Inventory check failed: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      );
     }
   }
 }

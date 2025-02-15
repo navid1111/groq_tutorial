@@ -2,6 +2,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import multer from 'multer';
 import { judgeDebate, transcribeAudio } from '../controllers/debate';
+import { inventoryCheck } from '../controllers/inventory';
 import { predictDisease } from '../controllers/plant';
 
 // Configure multer for audio files
@@ -52,5 +53,5 @@ router.post(
   imageUpload.single('imageFile'),
   predictDisease,
 );
-
+router.post('/check', inventoryCheck);
 export default router;
